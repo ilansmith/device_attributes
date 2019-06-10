@@ -11,6 +11,7 @@
 #include <arpa/inet.h>
 
 #include "serial_number.h"
+#include "sysexec.h"
 
 static long supported_dev_ids[] = {
     /* CX2 */
@@ -81,7 +82,7 @@ static char *get_ip(char *device)
 
 static int get_dev_name(char *dir_d_name, char *devname, size_t len)
 {
-    char net_dir_name[BUS_ADDR_LEN];
+    char net_dir_name[PCI_ADDR_LEN];
     DIR *d_net_dir;
     struct dirent *dir_devname;
     int ret = -1;
@@ -106,6 +107,19 @@ static int get_dev_name(char *dir_d_name, char *devname, size_t len)
 exit:
     closedir(d_net_dir);
     return ret;
+}
+
+static int get_serial_number(char *pci_addr, char *serial_number, int len)
+{
+	char buf[2048];
+	int ret;
+
+	snprintf(buf, sizeof(buf), "sudo lspci -vv -s %s | "
+		"grep \"Serial number\" | "
+		"awk -F' ' '{ print $4 }'", pci_addr);
+
+	*serial_number = 0;
+	return sysexecp(serial_number, len, buf, pci_addr);
 }
 
 static int is_supported_devid(long devid)
@@ -211,8 +225,13 @@ int mdevices_v_ul(struct sn_device_info *sndi, int len, int mask, int verbosity)
                     goto cleanup_file_opened;
                 }
 
+		if (get_serial_number(dir->d_name, sndi[ndevs].serial_number, sizeof(sndi[ndevs].serial_number))) {
+                    ndevs = -4;
+                    goto cleanup_file_opened;
+                }
+
                 snprintf(sndi[ndevs].ip_addr, sizeof(sndi[ndevs].ip_addr), "%s", get_ip(sndi[ndevs].devname));
-		snprintf(sndi[ndevs].bus_addr, sizeof(sndi[ndevs].bus_addr), "%s", dir->d_name);
+		snprintf(sndi[ndevs].pci_addr, sizeof(sndi[ndevs].pci_addr), "%s", dir->d_name);
                 ndevs++;
             }
         }
