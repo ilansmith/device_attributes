@@ -10,6 +10,8 @@
 #include <net/if.h>
 #include <arpa/inet.h>
 
+#include "serial_number.h"
+
 static long supported_dev_ids[] = {
     /* CX2 */
     0x6340, 0x634a, 0x6368, 0x6372,
@@ -79,7 +81,7 @@ static char *get_ip(char *device)
 
 static int get_dev_name(char *dir_d_name, char *devname, size_t len)
 {
-    char net_dir_name[256];
+    char net_dir_name[BUS_ADDR_LEN];
     DIR *d_net_dir;
     struct dirent *dir_devname;
     int ret = -1;
@@ -146,7 +148,7 @@ static int is_supported_device(char *devname)
     return ret_val;
 }
 
-int mdevices_v_ul(char *buf, int len, int mask, int verbosity)
+int mdevices_v_ul(struct sn_device_info *sndi, int len, int mask, int verbosity)
 {
 
 #define MDEVS_TAVOR_CR  0x20
@@ -155,9 +157,7 @@ int mdevices_v_ul(char *buf, int len, int mask, int verbosity)
     FILE *f;
     DIR *d;
     struct dirent *dir;
-    int pos = 0;
     int sz;
-    int rsz;
     int ndevs = 0;
 
     if (!(mask & MDEVS_TAVOR_CR)) {
@@ -198,25 +198,21 @@ int mdevices_v_ul(char *buf, int len, int mask, int verbosity)
         if (fgets(inbuf, sizeof(inbuf), f)) {
             long venid = strtoul(inbuf, NULL, 0);
             char devname[IFNAMSIZ];
-            char ip_addr[16 + 1];
+            char ip_addr[IP_ADDR_LEN];
 
             if (venid == MLNX_PCI_VENDOR_ID && is_supported_device(dir->d_name)) {
-                if (get_dev_name(dir->d_name, devname, sizeof(devname))) {
-                    ndevs = -3;
-                    goto cleanup_file_opened;
-                }
-                sz += strlen(devname) + 1;
-
-                snprintf(ip_addr, sizeof(ip_addr), "%s", get_ip(devname));
-                sz += strlen(ip_addr) + 1;
-
-                rsz = sz + 1; //dev name size + place for Null char
-                if ((pos + rsz) > len) {
+                if (ndevs == len) {
                     ndevs = -1;
                     goto cleanup_file_opened;
                 }
-                snprintf(&buf[pos], rsz, "%s %s %s", ip_addr, devname, dir->d_name);
-                pos += rsz;
+
+                if (get_dev_name(dir->d_name, sndi[ndevs].devname, sizeof(sndi[ndevs].devname))) {
+                    ndevs = -3;
+                    goto cleanup_file_opened;
+                }
+
+                snprintf(sndi[ndevs].ip_addr, sizeof(sndi[ndevs].ip_addr), "%s", get_ip(sndi[ndevs].devname));
+		snprintf(sndi[ndevs].bus_addr, sizeof(sndi[ndevs].bus_addr), "%s", dir->d_name);
                 ndevs++;
             }
         }
