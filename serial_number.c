@@ -3,6 +3,12 @@
 #include <string.h>
 #include <sys/types.h>
 #include <dirent.h>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+#include <netinet/in.h>
+#include <net/if.h>
+#include <arpa/inet.h>
 
 static long supported_dev_ids[] = {
     /* CX2 */
@@ -49,7 +55,58 @@ static long live_fish_id_database[] = {
     -1
 };
 
-int is_supported_devid(long devid)
+static char *get_ip(char *device)
+{
+    int fd;
+    struct ifreq ifr;
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+    /* I want to get an IPv4 IP address */
+    memset(&ifr, 0, sizeof(struct ifreq));
+    ifr.ifr_addr.sa_family = AF_INET;
+
+    /* I want IP address attached to device */
+    strncpy(ifr.ifr_name, device, IFNAMSIZ-1);
+
+    ioctl(fd, SIOCGIFADDR, &ifr);
+
+    close(fd);
+
+    /* return result */
+    return inet_ntoa(((struct sockaddr_in*)&ifr.ifr_addr)->sin_addr);
+}
+
+static int get_dev_name(char *dir_d_name, char *devname, size_t len)
+{
+    char net_dir_name[256];
+    DIR *d_net_dir;
+    struct dirent *dir_devname;
+    int ret = -1;
+
+    snprintf(net_dir_name, sizeof(net_dir_name), "/sys/bus/pci/devices/%.34s/net", dir_d_name);
+    d_net_dir = opendir(net_dir_name);
+    if (d_net_dir == NULL) {
+        return -1;
+    }
+
+    do {
+        dir_devname = readdir(d_net_dir);
+    } while (!strcmp(dir_devname->d_name, ".") || !strcmp(dir_devname->d_name, ".."));
+
+    if (dir_devname == NULL) {
+        goto exit;
+    }
+
+    snprintf(devname, len, "%s", dir_devname->d_name);
+    ret = 0;
+
+exit:
+    closedir(d_net_dir);
+    return ret;
+}
+
+static int is_supported_devid(long devid)
 {
     int i = 0;
     while (supported_dev_ids[i] != -1) {
@@ -68,7 +125,7 @@ int is_supported_devid(long devid)
     return 0;
 }
 
-int is_supported_device(char *devname)
+static int is_supported_device(char *devname)
 {
 
     char fname[64] = {0};
@@ -140,13 +197,25 @@ int mdevices_v_ul(char *buf, int len, int mask, int verbosity)
         }
         if (fgets(inbuf, sizeof(inbuf), f)) {
             long venid = strtoul(inbuf, NULL, 0);
+            char devname[IFNAMSIZ];
+            char ip_addr[16 + 1];
+
             if (venid == MLNX_PCI_VENDOR_ID && is_supported_device(dir->d_name)) {
+                if (get_dev_name(dir->d_name, devname, sizeof(devname))) {
+                    ndevs = -3;
+                    goto cleanup_file_opened;
+                }
+                sz += strlen(devname) + 1;
+
+                snprintf(ip_addr, sizeof(ip_addr), "%s", get_ip(devname));
+                sz += strlen(ip_addr) + 1;
+
                 rsz = sz + 1; //dev name size + place for Null char
                 if ((pos + rsz) > len) {
                     ndevs = -1;
                     goto cleanup_file_opened;
                 }
-                memcpy(&buf[pos], dir->d_name, rsz);
+                snprintf(&buf[pos], rsz, "%s %s %s", ip_addr, devname, dir->d_name);
                 pos += rsz;
                 ndevs++;
             }
