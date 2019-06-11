@@ -111,15 +111,23 @@ exit:
 
 static int get_serial_number(char *pci_addr, char *serial_number, int len)
 {
-	char buf[2048];
-	int ret;
+    char buf[2048];
+    char *lspci = "lspci";
+    int ret;
 
-	snprintf(buf, sizeof(buf), "sudo lspci -vv -s %s | "
-		"grep \"Serial number\" | "
-		"awk -F' ' '{ print $4 }'", pci_addr);
+    snprintf(buf, sizeof(buf), "sudo %s -vv -s %s 2>/dev/null | "
+        "grep \"Serial number\" | awk -F' ' '{ print $4 }'", lspci, pci_addr);
 
-	*serial_number = 0;
-	return sysexecp(serial_number, len, buf, pci_addr);
+    *serial_number = 0;
+    ret = sysexecp(serial_number, len, buf, pci_addr);
+    if (ret) {
+        fprintf(stderr, "Failed extracting serial number\n");
+    } else if (!*serial_number) {
+        fprintf(stderr, "%s not found - failed extracting serial number\n", lspci);
+        ret = -1;
+    }
+
+    return ret;
 }
 
 static int is_supported_devid(long devid)
@@ -225,13 +233,13 @@ int mdevices_v_ul(struct sn_device_info *sndi, int len, int mask, int verbosity)
                     goto cleanup_file_opened;
                 }
 
-		if (get_serial_number(dir->d_name, sndi[ndevs].serial_number, sizeof(sndi[ndevs].serial_number))) {
+                if (get_serial_number(dir->d_name, sndi[ndevs].serial_number, sizeof(sndi[ndevs].serial_number))) {
                     ndevs = -4;
                     goto cleanup_file_opened;
                 }
 
                 snprintf(sndi[ndevs].ip_addr, sizeof(sndi[ndevs].ip_addr), "%s", get_ip(sndi[ndevs].devname));
-		snprintf(sndi[ndevs].pci_addr, sizeof(sndi[ndevs].pci_addr), "%s", dir->d_name);
+                snprintf(sndi[ndevs].pci_addr, sizeof(sndi[ndevs].pci_addr), "%s", dir->d_name);
                 ndevs++;
             }
         }
