@@ -101,7 +101,7 @@ static int get_dev_name(char *dir_d_name, char *devname, size_t len)
         goto exit;
     }
 
-    snprintf(devname, len, "%s", dir_devname->d_name);
+    snprintf(devname, len, "%.15s", dir_devname->d_name);
     ret = 0;
 
 exit:
@@ -151,12 +151,12 @@ static int is_supported_devid(long devid)
 
 static int is_supported_device(char *devname)
 {
-
     char fname[64] = {0};
     char inbuf[64] = {0};
     FILE *f;
     int ret_val = 0;
-    snprintf(fname, sizeof(fname) - 1, "/sys/bus/pci/devices/%s/device", devname);
+
+    snprintf(fname, sizeof(fname) - 1, "/sys/bus/pci/devices/%.34s/device", devname);
     f = fopen(fname, "r");
     if (f == NULL) {
         //printf("-D- Could not open file: %s\n", fname);
@@ -219,8 +219,6 @@ int mdevices_v_ul(struct sn_device_info *sndi, int len, int mask, int verbosity)
         }
         if (fgets(inbuf, sizeof(inbuf), f)) {
             long venid = strtoul(inbuf, NULL, 0);
-            char devname[IFNAMSIZ];
-            char ip_addr[IP_ADDR_LEN];
 
             if (venid == MLNX_PCI_VENDOR_ID && is_supported_device(dir->d_name)) {
                 if (ndevs == len) {
